@@ -158,7 +158,7 @@ void setup() {
   }
   Serial.print("\r\nArduino Started");
   pinMode(PIN_SOLENOID, OUTPUT);
-  digitalWrite(PIN_SOLENOID, false);
+  digitalWrite(PIN_SOLENOID, true);
 
   //Setup RF Transiever
   /* Define the DIO used for SPI CSN & CE. Defaults are DIO
@@ -196,8 +196,6 @@ void setSolenoid(byte solenoid, byte state) {
     if (!solenoidState) {
       Serial.print("Activated");
       solenoidState = true;
-      digitalWrite(PIN_SOLENOID, true);
-      delay(20);
       digitalWrite(PIN_SOLENOID, false);
     }
   } 
@@ -206,8 +204,6 @@ void setSolenoid(byte solenoid, byte state) {
       solenoidState = false;
       Serial.print("Deactivated");
       digitalWrite(PIN_SOLENOID, true);
-      delay(20);
-      digitalWrite(PIN_SOLENOID, false);
     }
   } 
   else {
