@@ -1,3 +1,4 @@
+
 #include <SPI.h>
 #include <Mirf.h>
 #include <nRF24L01.h>
@@ -21,7 +22,7 @@
 #define CMD_SOLENOID 0x10
 #define CMD_LED 0x20
 
-#define PIN_SOLENOID 2
+#define PIN_SOLENOID 6
 
 boolean solenoidState = false;
 DHT dht(DHTPIN, DHTTYPE);
@@ -30,6 +31,7 @@ float temperatureVal;
 long humidLong;
 long tempLong;
 uint8_t recMsg[64];
+byte lightByte;
 
 USB Usb;
 ADK adk(&Usb, "Electric Green Thumb", // Manufacturer Name
@@ -40,17 +42,50 @@ ADK adk(&Usb, "Electric Green Thumb", // Manufacturer Name
 "123456789"); // Serial Number (optional)
 
 uint32_t timer;
-uint8_t testPacket[32];
 
 struct NODE{
   byte nodeNumber;
-  uint8_t address[5];
+  char address[5];
 };
+
+byte nodeSoil[4];
+int nodeTemp[4];
+byte nodeLight[4];
+int nodeBat[4];
 
 NODE clients[4];
 uint8_t numClients = 0;
 
-struct PACKET{
+struct USB_PACKET{
+  byte type;
+  union {
+    struct UPDATE{
+      uint8_t nodes;
+      uint8_t soilSensor[2];
+      uint8_t light[2];
+      uint16_t temperature[2];
+      uint32_t baseTemp;
+      uint32_t baseHumid;
+      uint8_t baseLight;
+    }
+    UPDATE;
+    struct CMD{
+      uint8_t arguments[5];
+    }
+    CMD;
+    struct LED{
+      uint8_t color;
+      uint8_t value;
+      uint8_t arguments[3];
+    }
+    LED;
+    uint8_t asBytes[6];
+  }pktTypes; 
+};
+USB_PACKET outPacket;
+
+
+struct RF_PACKET{
   byte type;
   union {
     struct INIT{
@@ -59,8 +94,8 @@ struct PACKET{
     INIT;
     struct UPDATE{
       byte nodeNumber;
-      uint8_t soilSensor1;
-      uint8_t soilSensor2;
+      uint8_t soilSensor;
+      uint8_t battery;
       uint8_t light;
       uint16_t temperature;
     }
@@ -79,7 +114,9 @@ struct PACKET{
   }pktTypes; 
 };
 
-PACKET packet;
+ RF_PACKET packet;
+ RF_PACKET pktBuffer[5];
+byte pktBufferPt = 0;
 
 #define RGB_RED    3
 #define RGB_GREEN  5
@@ -107,29 +144,11 @@ void setLED(unsigned int color, byte value){
 }
 
 void rf_interupt(){
-  if(!Mirf.isSending() && Mirf.dataReady()){
-    Serial.println("Got packet");
-    Mirf.getData((byte*)&packet);
-    switch(packet.type){
-    case RFTYPE_REGISTER:
-    for (int i=0; i<numClients; i++){
-          if (clients[i].address == packet.pktTypes.INIT.newNode.address){
-            packet.type = RFTYPE_ACCEPTED;
-            packet.pktTypes.INIT.newNode.nodeNumber = clients[i].nodeNumber;
-              Mirf.send((byte *)&packet);
-              return;
-          }
-    }
-    packet.type = RFTYPE_ACCEPTED;
-    packet.pktTypes.INIT.newNode.nodeNumber = numClients+1;
-    clients[numClients++] = packet.pktTypes.INIT.newNode;
-    Mirf.send((byte *)&packet);
-    break;     
-    }
-  }
+  
 }
 
 void setup() {
+  pktBufferPt = 0;
   Serial.begin(9600);
   dht.begin();
   while (!Serial); // Wait for serial port to connect - used on Leonardo, Teensy and other boards with built-in USB CDC serial connection
@@ -166,7 +185,7 @@ void setup() {
   /* Configure the module */
   Mirf.config();
   
-  attachInterrupt(1,rf_interupt,LOW);
+ // attachInterrupt(1,rf_interupt,LOW);
 
 }
 
@@ -198,6 +217,72 @@ void setSolenoid(byte solenoid, byte state) {
 }
 
 void loop() {
+  if (pktBufferPt>0){
+    pktBufferPt--;
+
+    Mirf.setTADDR((byte *)pktBuffer[pktBufferPt].pktTypes.INIT.newNode.address);
+        //Mirf.setTADDR((byte *)"NODE1");
+              Mirf.send((byte *)&pktBuffer[pktBufferPt]);
+              while(Mirf.isSending());
+              Serial.print("Send Response to :");
+       Serial.println(pktBuffer[pktBufferPt].pktTypes.INIT.newNode.address);
+  }
+  if(!Mirf.isSending() && Mirf.dataReady()){
+    Serial.println("Got packet");
+    Mirf.getData((byte*)&packet);
+        Serial.print("Type: ");
+    Serial.println(packet.type);
+    switch(packet.type){
+    case RFTYPE_REGISTER:
+    for (int i=0; i<numClients; i++){
+          if (strncmp(clients[i].address, (const char*)packet.pktTypes.INIT.newNode.address,5)  == 0){
+            packet.type = RFTYPE_ACCEPTED;
+            packet.pktTypes.INIT.newNode.nodeNumber = clients[i].nodeNumber;
+                Serial.print("Node ");
+                Serial.println(i+1);
+                Serial.println("Already registered");
+                                          pktBuffer[pktBufferPt++] = packet;
+               //   Mirf.setTADDR((byte *)clients[i].address);
+           //   Mirf.send((byte *)&packet);
+        //while(Mirf.isSending()); 
+               // Serial.println("Responded to node");
+              return;
+          }
+    }
+    packet.type = RFTYPE_ACCEPTED;
+    packet.pktTypes.INIT.newNode.nodeNumber = numClients+1;
+    clients[numClients++] = packet.pktTypes.INIT.newNode;
+        Serial.println("New Node Registered");
+                Serial.print("Address:");
+        Serial.println(packet.pktTypes.INIT.newNode.address);
+                          pktBuffer[pktBufferPt++] = packet;
+    //Mirf.send((byte *)&packet);
+       //while(Mirf.isSending());    
+        //erial.println("Responded to Node");       
+    break;     
+    
+    case RFTYPE_UPDATE:
+    if(packet.pktTypes.UPDATE.nodeNumber>0){
+    nodeTemp[packet.pktTypes.UPDATE.nodeNumber-1] = packet.pktTypes.UPDATE.temperature;
+    nodeSoil[packet.pktTypes.UPDATE.nodeNumber-1] = packet.pktTypes.UPDATE.soilSensor;
+    nodeLight[packet.pktTypes.UPDATE.nodeNumber-1] = packet.pktTypes.UPDATE.light;
+    nodeBat[packet.pktTypes.UPDATE.nodeNumber-1] = packet.pktTypes.UPDATE.battery;
+    Serial.print("Node ");
+        Serial.print(packet.pktTypes.UPDATE.nodeNumber);
+            Serial.println(" Data Recieved");
+Serial.print("Tenp: ");
+            Serial.println(nodeTemp[packet.pktTypes.UPDATE.nodeNumber-1]);
+Serial.print("Soil Moisture: ");
+            Serial.println(nodeSoil[packet.pktTypes.UPDATE.nodeNumber-1]);
+            Serial.print("Light Sensor: ");
+            Serial.println(nodeLight[packet.pktTypes.UPDATE.nodeNumber-1]);
+            Serial.print("Battery: ");
+            Serial.println(nodeBat[packet.pktTypes.UPDATE.nodeNumber-1]);
+    }
+    break;
+    }
+  }
+  
   Usb.Task();
   if (adk.isReady()) {
     uint16_t len = sizeof (recMsg);
@@ -224,31 +309,30 @@ void loop() {
     if (millis() - timer >= 2000) { // Send data every 1s
       // Reading temperature or humidity takes about 250 milliseconds!
       // Sensor readings may also be up to 2 seconds 'old' (its a very slow sensor)
-      
-                setLED(0x54,0x32);
-
       humidityVal = dht.readHumidity();
       temperatureVal = dht.readTemperature();
       humidLong = (long) (humidityVal * 1000);
       tempLong = (long) (temperatureVal * 1000);
-
+      lightByte = 55;
       // check if returns are valid, if they are NaN (not a number) then something went wrong!
       if (isnan(temperatureVal) || isnan(humidityVal)) {
         Serial.println("Failed to read from DHT");
       }
-      testPacket[0] = PKT_UPDATE;
-      testPacket[1] = (tempLong >> 24)&0xFF;
-      testPacket[2] = (tempLong >> 16)&0xFF;
-      testPacket[3] = (tempLong >> 8)&0xFF;
-      testPacket[4] = tempLong & 0xFF;
-
-      testPacket[5] = (humidLong >> 24)&0xFF;
-      testPacket[6] = (humidLong >> 16)&0xFF;
-      testPacket[7] = (humidLong >> 8)&0xFF;
-      testPacket[8] = humidLong & 0xFF;
-
+      outPacket.type = PKT_UPDATE;
+      outPacket.pktTypes.UPDATE.nodes = numClients;
+      outPacket.pktTypes.UPDATE.baseTemp = tempLong;
+      outPacket.pktTypes.UPDATE.baseHumid = humidLong;
+      outPacket.pktTypes.UPDATE.baseLight = lightByte;
+      outPacket.pktTypes.UPDATE.soilSensor[0] = nodeSoil[0];
+      outPacket.pktTypes.UPDATE.soilSensor[1] = nodeSoil[1];
+      outPacket.pktTypes.UPDATE.light[0] = nodeLight[0];
+      outPacket.pktTypes.UPDATE.light[1] = nodeLight[1];
+      outPacket.pktTypes.UPDATE.soilSensor[0] = nodeSoil[0];
+      outPacket.pktTypes.UPDATE.soilSensor[1] = nodeSoil[1];
+      outPacket.pktTypes.UPDATE.temperature[0] = nodeTemp[0];
+      outPacket.pktTypes.UPDATE.temperature[1] = nodeTemp[1];
       timer = millis();
-      rcode = adk.SndData(sizeof (testPacket), (uint8_t*) & testPacket);
+      rcode = adk.SndData(sizeof (outPacket), (uint8_t*) & outPacket);
       Serial.print("Humidity: ");
       Serial.print(humidityVal);
       Serial.print(" %\t");
