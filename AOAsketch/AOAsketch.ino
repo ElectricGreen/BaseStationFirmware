@@ -19,8 +19,12 @@
 #define RFTYPE_LED 5
 
 
-#define CMD_SOLENOID 0x10
-#define CMD_LED 0x20
+#define CMD_SOLENOID   0x10
+
+#define CMD_SET_RED    0x50
+#define CMD_SET_GREEN  0x51
+#define CMD_SET_BLUE   0x52
+#define CMD_SET_ALL    0x53
 
 #define PIN_SOLENOID 6
 
@@ -32,7 +36,7 @@ long humidLong;
 long tempLong;
 uint8_t recMsg[64];
 byte lightByte;
-
+byte currentRed,currentGreen, currentBlue;
 USB Usb;
 ADK adk(&Usb, "Electric Green Thumb", // Manufacturer Name
 "Scarecrow", // Model Name
@@ -67,20 +71,24 @@ struct USB_PACKET{
       uint32_t baseTemp;
       uint32_t baseHumid;
       uint8_t baseLight;
+      uint8_t rValue;
+      uint8_t gValue;
+      uint8_t bValue;
     }
     UPDATE;
     struct CMD{
-      uint8_t arguments[5];
+      uint8_t arguments[6];
     }
     CMD;
     struct LED{
       uint8_t color;
       uint8_t value;
-      uint8_t arguments[3];
+      uint8_t arguments[6];
     }
     LED;
     uint8_t asBytes[6];
-  }pktTypes; 
+  }
+  pktTypes; 
 };
 USB_PACKET outPacket;
 
@@ -89,8 +97,8 @@ struct RF_PACKET{
   byte type;
   union {
     struct INIT{
-        NODE newNode;
-      }
+      NODE newNode;
+    }
     INIT;
     struct UPDATE{
       byte nodeNumber;
@@ -111,40 +119,47 @@ struct RF_PACKET{
     }
     LED;
     uint8_t asBytes[6];
-  }pktTypes; 
+  }
+  pktTypes; 
 };
 
- RF_PACKET packet;
- RF_PACKET pktBuffer[5];
+RF_PACKET packet;
+RF_PACKET pktBuffer[5];
 byte pktBufferPt = 0;
 
-#define RGB_RED    3
-#define RGB_GREEN  5
-#define RGB_BLUE   6
-
-void setLED(unsigned int color, byte value){
+void setLED(unsigned int color, int value){
   switch(color){
-  case RGB_RED:
+  case CMD_SET_RED:
     Serial.print("RED SET: 0x");
+    currentRed = value&0xFF;
     break;
-  case RGB_GREEN:
+  case CMD_SET_GREEN:
     Serial.print("GREEN SET: 0x");
+    currentGreen = value&0xFF;
     break;
-  case RGB_BLUE:
+  case CMD_SET_BLUE:
     Serial.print("BLUE SET: 0x");
+    currentBlue = value&0xFF;
     break;
   }
-  Mirf.setTADDR((byte *)"clie1");
+  if (numClients>0){
+
+  Mirf.setTADDR((byte *)clients[0].address);
+  packet.type = RFTYPE_LED;
   packet.pktTypes.LED.color = color&0xFF;
   packet.pktTypes.LED.value = value&0xFF;
   Mirf.send((byte *)&packet);
 
   /* Wait for module to finish sending */
-  while(Mirf.isSending());                 
+  while(Mirf.isSending());      
+  Serial.print(value);
+}else{
+      Serial.print("No Nodes");
+}  
 }
 
 void rf_interupt(){
-  
+
 }
 
 void setup() {
@@ -184,8 +199,8 @@ void setup() {
 
   /* Configure the module */
   Mirf.config();
-  
- // attachInterrupt(1,rf_interupt,LOW);
+
+  // attachInterrupt(1,rf_interupt,LOW);
 
 }
 
@@ -217,68 +232,68 @@ void loop() {
     pktBufferPt--;
 
     Mirf.setTADDR((byte *)pktBuffer[pktBufferPt].pktTypes.INIT.newNode.address);
-        //Mirf.setTADDR((byte *)"NODE1");
-              Mirf.send((byte *)&pktBuffer[pktBufferPt]);
-              while(Mirf.isSending());
-              Serial.print("Send Response to :");
-       Serial.println(pktBuffer[pktBufferPt].pktTypes.INIT.newNode.address);
+    //Mirf.setTADDR((byte *)"NODE1");
+    Mirf.send((byte *)&pktBuffer[pktBufferPt]);
+    while(Mirf.isSending());
+    Serial.print("Send Response to :");
+    Serial.println(pktBuffer[pktBufferPt].pktTypes.INIT.newNode.address);
   }
   if(!Mirf.isSending() && Mirf.dataReady()){
     Serial.println("Got packet");
     Mirf.getData((byte*)&packet);
-        Serial.print("Type: ");
+    Serial.print("Type: ");
     Serial.println(packet.type);
     switch(packet.type){
     case RFTYPE_REGISTER:
-    for (int i=0; i<numClients; i++){
-          if (strncmp(clients[i].address, (const char*)packet.pktTypes.INIT.newNode.address,5)  == 0){
-            packet.type = RFTYPE_ACCEPTED;
-            packet.pktTypes.INIT.newNode.nodeNumber = clients[i].nodeNumber;
-                Serial.print("Node ");
-                Serial.println(i+1);
-                Serial.println("Already registered");
-                                          pktBuffer[pktBufferPt++] = packet;
-               //   Mirf.setTADDR((byte *)clients[i].address);
-           //   Mirf.send((byte *)&packet);
-        //while(Mirf.isSending()); 
-               // Serial.println("Responded to node");
-              return;
-          }
-    }
-    packet.type = RFTYPE_ACCEPTED;
-    packet.pktTypes.INIT.newNode.nodeNumber = numClients+1;
-    clients[numClients++] = packet.pktTypes.INIT.newNode;
-        Serial.println("New Node Registered");
-                Serial.print("Address:");
-        Serial.println(packet.pktTypes.INIT.newNode.address);
-                          pktBuffer[pktBufferPt++] = packet;
-    //Mirf.send((byte *)&packet);
-       //while(Mirf.isSending());    
-        //erial.println("Responded to Node");       
-    break;     
-    
+      for (int i=0; i<numClients; i++){
+        if (strncmp(clients[i].address, (const char*)packet.pktTypes.INIT.newNode.address,5)  == 0){
+          packet.type = RFTYPE_ACCEPTED;
+          packet.pktTypes.INIT.newNode.nodeNumber = clients[i].nodeNumber;
+          Serial.print("Node ");
+          Serial.println(i+1);
+          Serial.println("Already registered");
+          pktBuffer[pktBufferPt++] = packet;
+          //   Mirf.setTADDR((byte *)clients[i].address);
+          //   Mirf.send((byte *)&packet);
+          //while(Mirf.isSending()); 
+          // Serial.println("Responded to node");
+          return;
+        }
+      }
+      packet.type = RFTYPE_ACCEPTED;
+      packet.pktTypes.INIT.newNode.nodeNumber = numClients+1;
+      clients[numClients++] = packet.pktTypes.INIT.newNode;
+      Serial.println("New Node Registered");
+      Serial.print("Address:");
+      Serial.println(packet.pktTypes.INIT.newNode.address);
+      pktBuffer[pktBufferPt++] = packet;
+      //Mirf.send((byte *)&packet);
+      //while(Mirf.isSending());    
+      //erial.println("Responded to Node");       
+      break;     
+
     case RFTYPE_UPDATE:
-    if(packet.pktTypes.UPDATE.nodeNumber>0){
-    nodeTemp[packet.pktTypes.UPDATE.nodeNumber-1] = packet.pktTypes.UPDATE.temperature;
-    nodeSoil[packet.pktTypes.UPDATE.nodeNumber-1] = packet.pktTypes.UPDATE.soilSensor;
-    nodeLight[packet.pktTypes.UPDATE.nodeNumber-1] = packet.pktTypes.UPDATE.light;
-    nodeBat[packet.pktTypes.UPDATE.nodeNumber-1] = packet.pktTypes.UPDATE.battery;
-    Serial.print("Node ");
+      if(packet.pktTypes.UPDATE.nodeNumber>0){
+        nodeTemp[packet.pktTypes.UPDATE.nodeNumber-1] = packet.pktTypes.UPDATE.temperature;
+        nodeSoil[packet.pktTypes.UPDATE.nodeNumber-1] = packet.pktTypes.UPDATE.soilSensor;
+        nodeLight[packet.pktTypes.UPDATE.nodeNumber-1] = packet.pktTypes.UPDATE.light;
+        nodeBat[packet.pktTypes.UPDATE.nodeNumber-1] = packet.pktTypes.UPDATE.battery;
+        Serial.print("Node ");
         Serial.print(packet.pktTypes.UPDATE.nodeNumber);
-            Serial.println(" Data Recieved");
-Serial.print("Tenp: ");
-            Serial.println(nodeTemp[packet.pktTypes.UPDATE.nodeNumber-1]);
-Serial.print("Soil Moisture: ");
-            Serial.println(nodeSoil[packet.pktTypes.UPDATE.nodeNumber-1]);
-            Serial.print("Light Sensor: ");
-            Serial.println(nodeLight[packet.pktTypes.UPDATE.nodeNumber-1]);
-            Serial.print("Battery: ");
-            Serial.println(nodeBat[packet.pktTypes.UPDATE.nodeNumber-1]);
-    }
-    break;
+        Serial.println(" Data Recieved");
+        Serial.print("Tenp: ");
+        Serial.println(nodeTemp[packet.pktTypes.UPDATE.nodeNumber-1]);
+        Serial.print("Soil Moisture: ");
+        Serial.println(nodeSoil[packet.pktTypes.UPDATE.nodeNumber-1]);
+        Serial.print("Light Sensor: ");
+        Serial.println(nodeLight[packet.pktTypes.UPDATE.nodeNumber-1]);
+        Serial.print("Battery: ");
+        Serial.println(nodeBat[packet.pktTypes.UPDATE.nodeNumber-1]);
+      }
+      break;
     }
   }
-  
+
   Usb.Task();
   if (adk.isReady()) {
     uint16_t len = sizeof (recMsg);
@@ -294,15 +309,26 @@ Serial.print("Soil Moisture: ");
         case CMD_SOLENOID:
           setSolenoid(recMsg[2], recMsg[3]);
           break;
-        case CMD_LED:
-          setLED(recMsg[2],recMsg[3]);
+        case CMD_SET_RED:
+          setLED(recMsg[1], recMsg[2]);
           break;
+        case CMD_SET_GREEN:
+          setLED(recMsg[1], recMsg[2]);
+          break;
+        case CMD_SET_BLUE:
+          setLED(recMsg[1], recMsg[2]);
+          break;
+          case CMD_SET_ALL:
+          setLED(CMD_SET_RED, recMsg[2]);
+          setLED(CMD_SET_GREEN, recMsg[3]);
+          setLED(CMD_SET_BLUE, recMsg[4]);
+break;
         }
         break;
       }
     }
 
-    if (millis() - timer >= 2000) { // Send data every 1s
+    if (millis() - timer >= 60000) { // Send data every 1s
       // Reading temperature or humidity takes about 250 milliseconds!
       // Sensor readings may also be up to 2 seconds 'old' (its a very slow sensor)
       humidityVal = dht.readHumidity();
@@ -327,6 +353,10 @@ Serial.print("Soil Moisture: ");
       outPacket.pktTypes.UPDATE.soilSensor[1] = nodeSoil[1];
       outPacket.pktTypes.UPDATE.temperature[0] = nodeTemp[0];
       outPacket.pktTypes.UPDATE.temperature[1] = nodeTemp[1];
+      outPacket.pktTypes.UPDATE.rValue = currentRed;
+      outPacket.pktTypes.UPDATE.gValue = currentGreen;
+      outPacket.pktTypes.UPDATE.bValue = currentBlue;
+
       timer = millis();
       rcode = adk.SndData(sizeof (outPacket), (uint8_t*) & outPacket);
       Serial.print("Humidity: ");
@@ -338,5 +368,6 @@ Serial.print("Soil Moisture: ");
     }
   }
 }
+
 
 
