@@ -16,8 +16,8 @@
 #define PIN_IO_SCK      A5
 #define PIN_IO_DATA     A4
 
-#define PIN_RF_CE       9
-#define PIN_RF_CSN      10
+#define PIN_RF_CE       7
+#define PIN_RF_CSN      8
 
 //IO EXPANDER
 //PIN_MOTOR_EN 

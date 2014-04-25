@@ -12,10 +12,8 @@
 #include "Structs.h"
 #include "Pins.h"
 
-//#include <PinChangeInt.h>
-
 //Variables
-DHT dht(PIN_DHT, DHTTYPE);
+//DHT dht(PIN_DHT, DHTTYPE);
 
 //USB Variables
 USB Usb;
