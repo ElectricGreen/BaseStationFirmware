@@ -75,9 +75,9 @@ void setExOutput(int output, boolean value);
 
 
 void setup() {
-  Serial.begin(9600);
-  while (!Serial); // Wait for serial port to connect - used on Leonardo, Teensy and other boards with built-in USB CDC serial connection
-  Serial.println("\r\nArduino Started");
+//  Serial.begin(9600);
+//  while (!Serial); // Wait for serial port to connect - used on Leonardo, Teensy and other boards with built-in USB CDC serial connection
+//  Serial.println("\r\nArduino Started");
 
   //USB
   if (Usb.Init() == -1) {
@@ -236,19 +236,6 @@ void setHeadDirection(int dir, boolean sec){
 
 }
 void loop() {
-//  while(true){
-//   digitalWrite(PIN_MOTOR_EN, MOTOR_ON);
-//  stepper.step(50);
-//  delay(5000);//Delay 2s to move head
-//    stepper.step(-50);
-////    stepper.step(-50);
-////      delay(5000);
-////  digitalWrite(PIN_MOTOR_EN, MOTOR_OFF); 
-////  delay(5000);
-//   digitalWrite(PIN_MOTOR_EN, MOTOR_OFF);
-//
-//  delay(5000);
-//  }
   
     long currentTime = millis();
     
@@ -345,7 +332,7 @@ void loop() {
         Serial.print("Node ");
         Serial.print(packet.pktTypes.UPDATE.nodeNumber);
         Serial.println(" Data Recieved");
-        Serial.print("Tenp: ");
+        Serial.print("Temp: ");
         Serial.println(nodeTemp[packet.pktTypes.UPDATE.nodeNumber-1]);
         Serial.print("Soil Moisture: ");
         Serial.println(nodeSoil[packet.pktTypes.UPDATE.nodeNumber-1]);
@@ -410,7 +397,7 @@ void loop() {
 //            temperatureVal = dht.readTemperature();
 //            humidLong = (long) (humidityVal * 1000);
 //            tempLong = (long) (temperatureVal * 1000);
-      lightByte = analogRead(PIN_LIGHT);
+      lightByte = analogRead(PIN_LIGHT)*.097656;
       // check if returns are valid, if they are NaN (not a number) then something went wrong!
       //      if (isnan(temperatureVal) || isnan(humidityVal)) {
       //        Serial.println("Failed to read from DHT");
